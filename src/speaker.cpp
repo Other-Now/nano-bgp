@@ -2,6 +2,8 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
@@ -44,8 +46,6 @@ void logf(const char* fmt, ...) {
 
 namespace {
 volatile std::sig_atomic_t g_stop = 0;
-
-void set_nonblock(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK); }
 
 uint32_t sock_addr(int fd, bool peer) {
     sockaddr_in sa{};
@@ -118,6 +118,7 @@ std::optional<Config> Config::load(const std::string& path, std::string& err) {
         else if (k == "port") { auto x = num(65535); if (!x) return fail("bad port"); c.port = uint16_t(*x); }
         else if (k == "maximum-paths") { auto x = num(64); if (!x || !*x) return fail("bad maximum-paths"); c.max_paths = *x; }
         else if (k == "fib") c.fib = (v == "on");
+        else if (k == "fast-failover") c.fast_failover = (v == "on");
         else if (k == "control") c.control = v;
         else if (k == "network") { auto p = Prefix::parse(v); if (!p) return fail("bad prefix"); c.networks.push_back(*p); }
         else if (k == "neighbor") {
@@ -184,6 +185,13 @@ int Speaker::run() {
             fib_.remove_stale();
         }
     }
+    link_fd_ = fib_.open_link_monitor();
+    if (link_fd_ >= 0) {
+        epoll_event lev{EPOLLIN, {.ptr = &link_}};
+        epoll_ctl(ep_, EPOLL_CTL_ADD, link_fd_, &lev);
+    } else {
+        logf("link monitor unavailable: %s", std::strerror(errno));
+    }
 
     // Listening socket.
     listen_fd_ = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
@@ -240,6 +248,7 @@ int Speaker::run() {
             auto* pl = static_cast<Pollable*>(evs[i].data.ptr);
             if (pl->kind == Pollable::kListen) on_accept();
             else if (pl->kind == Pollable::kControl) on_control();
+            else if (pl->kind == Pollable::kLink) { if (fib_.drain_link_events(link_fd_)) on_link_change(); }
             else on_conn_event(static_cast<Conn*>(pl), evs[i].events);
         }
         timers();
@@ -593,6 +602,42 @@ void Speaker::timers() {
     }
 }
 
+// A link went up or down somewhere.
+//  1. fast-external-failover: an eBGP session whose local address sits on an
+//     interface without carrier is dead; don't wait for the hold timer.
+//  2. The kernel has deleted every route through a device that went down, and
+//     won't put them back when it comes up. A flap shorter than the hold time
+//     leaves the session (and so the RIB) untouched, so nothing else would
+//     ever reinstall them: push the whole Loc-RIB again.
+void Speaker::on_link_change() {
+    ++link_events_;
+    if (cfg_.fast_failover) {
+        std::unordered_map<uint32_t, bool> running;  // local IPv4 -> interface has carrier
+        ifaddrs* ifs = nullptr;
+        if (getifaddrs(&ifs) == 0) {
+            for (auto* i = ifs; i; i = i->ifa_next) {
+                if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET) continue;
+                uint32_t a = ntohl(reinterpret_cast<sockaddr_in*>(i->ifa_addr)->sin_addr.s_addr);
+                running[a] = (i->ifa_flags & IFF_UP) && (i->ifa_flags & IFF_RUNNING);
+            }
+            freeifaddrs(ifs);
+            for (auto& p : peers_) {
+                if (!p->est || !p->info.ebgp) continue;
+                auto it = running.find(p->est->local_addr);
+                if (it == running.end() || !it->second)
+                    close_conn(p->est, std::nullopt, "interface down (fast-external-failover)");
+            }
+        }
+    }
+    process_dirty();
+    if (fib_.enabled()) {
+        ++fib_resyncs_;
+        for (auto& [pfx, e] : rib_.loc())
+            if (!e.nexthops.empty()) fib_.set(pfx, e.nexthops);
+        fib_.flush();
+    }
+}
+
 // ================================================================ routes
 void Speaker::mark(const Prefix& pfx) {
     if (dirty_set_.insert(pfx).second) dirty_.push_back(pfx);
@@ -770,6 +815,10 @@ std::string Speaker::handle_command(const std::string& line) {
         logf("%s %s", cmd.c_str(), p->str().c_str());
         return "{\"ok\":true}";
     }
+    if (cmd == "fast-failover") {
+        cfg_.fast_failover = (arg == "on");
+        return "{\"ok\":true}";
+    }
     if (cmd == "peer-down" || cmd == "peer-up") {
         auto a = parse_ip(arg);
         for (auto& p : peers_) {
@@ -794,7 +843,9 @@ std::string Speaker::summary_json() {
                     ",\"router_id\":\"" + ip_str(cfg_.router_id) + "\",\"loc_rib\":" +
                     std::to_string(rib_.loc().size()) + ",\"adj_in\":" + std::to_string(rib_.adj_in_paths()) +
                     ",\"fib_ops\":" + std::to_string(fib_.ops) + ",\"fib_errors\":" + std::to_string(fib_.errors) +
-                    ",\"fib_last_error\":\"" + json_escape(fib_.last_error) + "\",\"peers\":[";
+                    ",\"fib_last_error\":\"" + json_escape(fib_.last_error) +
+                    "\",\"link_events\":" + std::to_string(link_events_) + ",\"fib_resyncs\":" +
+                    std::to_string(fib_resyncs_) + ",\"peers\":[";
     uint64_t now = now_ms();
     for (size_t i = 0; i < peers_.size(); ++i) {
         auto& p = *peers_[i];

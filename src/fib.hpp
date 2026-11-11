@@ -23,6 +23,12 @@ public:
     void remove_stale();   // delete every proto-bgp route (left over from a previous run)
     bool enabled() const { return fd_ >= 0; }
 
+    // A second netlink socket subscribed to link (interface) events. The kernel
+    // deletes every route through a device that goes down, without telling the
+    // routing daemon in any other way, so we have to watch for it ourselves.
+    int open_link_monitor();
+    bool drain_link_events(int fd);  // true if any link changed state
+
     uint64_t ops = 0, errors = 0;
     std::string last_error;
 

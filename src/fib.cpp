@@ -138,6 +138,36 @@ void Fib::flush() {
     pending_ = 0;
 }
 
+int Fib::open_link_monitor() {
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_ROUTE);
+    if (fd < 0) return -1;
+    sockaddr_nl sa{};
+    sa.nl_family = AF_NETLINK;
+    sa.nl_groups = RTMGRP_LINK;
+    if (bind(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+bool Fib::drain_link_events(int fd) {
+    alignas(nlmsghdr) static uint8_t rx[16 * 1024];
+    bool changed = false;
+    for (;;) {
+        ssize_t n = recv(fd, rx, sizeof rx, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            if (errno == ENOBUFS) changed = true;  // overflowed: assume something changed
+            break;
+        }
+        int len = int(n);
+        for (auto* h = reinterpret_cast<nlmsghdr*>(rx); NLMSG_OK(h, len); h = NLMSG_NEXT(h, len))
+            if (h->nlmsg_type == RTM_NEWLINK || h->nlmsg_type == RTM_DELLINK) changed = true;
+    }
+    return changed;
+}
+
 void Fib::remove_stale() {
     if (fd_ < 0) return;
     // Dump the main table and delete our own routes.

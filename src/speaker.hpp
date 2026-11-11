@@ -30,6 +30,7 @@ struct Config {
     uint16_t port = 179;
     size_t max_paths = 8;
     bool fib = true;
+    bool fast_failover = true;  // drop eBGP sessions as soon as their interface loses carrier
     std::string control;  // unix socket path for nbgpctl
     std::vector<NeighborCfg> neighbors;
     std::vector<Prefix> networks;
@@ -38,7 +39,7 @@ struct Config {
 };
 
 struct Pollable {
-    enum Kind { kListen, kControl, kConn } kind;
+    enum Kind { kListen, kControl, kLink, kConn } kind;
 };
 
 struct Conn : Pollable {
@@ -99,6 +100,7 @@ private:
     void on_session_down(Peer& p);
     void resolve_collision(Peer& p, Conn* winner_candidate);
     void timers();
+    void on_link_change();
 
     // routes
     void on_update(Peer& p, Update& u);
@@ -117,11 +119,11 @@ private:
     Fib fib_;
     std::vector<std::unique_ptr<Peer>> peers_;
     int ep_ = -1;
-    Pollable listen_{Pollable::kListen}, control_{Pollable::kControl};
-    int listen_fd_ = -1, control_fd_ = -1;
+    Pollable listen_{Pollable::kListen}, control_{Pollable::kControl}, link_{Pollable::kLink};
+    int listen_fd_ = -1, control_fd_ = -1, link_fd_ = -1;
+    uint64_t link_events_ = 0, fib_resyncs_ = 0;
     std::vector<Prefix> dirty_;
     std::unordered_set<Prefix, PrefixHash> dirty_set_;
-    std::vector<std::unique_ptr<Conn>> graveyard_;
 };
 
 uint64_t now_ms();

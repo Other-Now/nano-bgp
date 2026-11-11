@@ -92,15 +92,28 @@ def test_link_failure_and_recovery(fabric, spine, leaf):
     wait_converged(fabric, timeout=20)
 
 
-def test_link_flap_shorter_than_hold_time(fabric):
-    """A flap shorter than the hold time doesn't reset the BGP session, but the
-    kernel still deletes every route through the downed device. The FIB has to
-    come back anyway."""
-    fabric.link("spine2", "leaf1", up=False)
-    time.sleep(0.5)
-    fabric.link("spine2", "leaf1", up=True)
-    time.sleep(1.0)
-    wait_converged(fabric, timeout=15)
+@pytest.mark.parametrize("failover", ["on", "off"])
+def test_link_flap_shorter_than_hold_time(fabric, failover):
+    """A flap shorter than the hold time. The kernel deletes every route through
+    the downed device. With fast-failover on, the sessions over the link reset
+    and re-learn everything; with it off, the session survives and only the FIB
+    resync on link-up can bring the kernel routes back. Either way the FIB must
+    end up complete (before the fix it never did: README, Findings)."""
+    for n in ("spine2", "leaf1"):
+        fabric.nano(n, f"fast-failover {failover}")
+    flaps_before = {p["addr"]: p["flaps"] for p in fabric.nano("spine2", "summary")["peers"]}
+    try:
+        fabric.link("spine2", "leaf1", up=False)
+        time.sleep(0.5)
+        fabric.link("spine2", "leaf1", up=True)
+        time.sleep(1.0)
+        wait_converged(fabric, timeout=15)
+        flaps = {p["addr"]: p["flaps"] for p in fabric.nano("spine2", "summary")["peers"]}
+        reset = flaps["10.2.1.1"] > flaps_before["10.2.1.1"]
+        assert reset == (failover == "on")
+    finally:
+        for n in ("spine2", "leaf1"):
+            fabric.nano(n, "fast-failover on")
 
 
 def test_withdraw_from_nano_reaches_frr(fabric):

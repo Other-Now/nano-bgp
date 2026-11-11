@@ -20,8 +20,10 @@ from lab import Lab, spine_leaf  # noqa: E402
 CLIENT = r"""
 import socket, json
 ok = fail = 0
-for port in range(30000, 30128):
-    s = socket.socket(); s.settimeout(1.0)
+import sys
+base = int(sys.argv[1])
+for port in range(base, base + 128):
+    s = socket.socket(); s.settimeout(0.3)
     s.bind(("192.168.3.1", port))
     try:
         s.connect(("192.168.1.1", 8080)); ok += 1
@@ -39,8 +41,14 @@ while True:
 """
 
 
+PROBES = iter(range(30000, 60000, 1000))
+
+
 def probe(lab, label):
-    r = subprocess.run(["ip", "netns", "exec", "leaf3", "python3", "-c", CLIENT], capture_output=True, text=True)
+    r = subprocess.run(["ip", "netns", "exec", "leaf3", "python3", "-c", CLIENT, str(next(PROBES))],
+                       capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(r.stderr)
     res = json.loads(r.stdout)
     rib = "192.168.1.0/24" in lab.rib("spine2")
     fib = "192.168.1.0/24" in lab.fib("spine2")
@@ -64,6 +72,7 @@ try:
     probe(lab, "10 s after 0.5 s flap")
     st = lab.nano("spine2", "summary")["peers"]
     print("spine2 session to leaf1:", [(p["addr"], p["state"], p["flaps"]) for p in st if p["addr"] == "10.2.1.1"])
-    srv.kill()
 finally:
+    if "srv" in globals():
+        srv.kill()
     lab.stop()

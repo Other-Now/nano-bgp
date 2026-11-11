@@ -35,16 +35,6 @@ struct Reg {
 // ---------------------------------------------------------------- helpers
 static Prefix P(const char* s) { return *Prefix::parse(s); }
 
-static std::vector<uint8_t> hdr(uint8_t type, std::vector<uint8_t> body) {
-    std::vector<uint8_t> m(16, 0xFF);
-    size_t len = 19 + body.size();
-    m.push_back(uint8_t(len >> 8));
-    m.push_back(uint8_t(len));
-    m.push_back(type);
-    m.insert(m.end(), body.begin(), body.end());
-    return m;
-}
-
 // UPDATE body from raw attribute bytes and NLRI bytes.
 static std::vector<uint8_t> update_body(std::vector<uint8_t> withdrawn, std::vector<uint8_t> attrs,
                                         std::vector<uint8_t> nlri) {
