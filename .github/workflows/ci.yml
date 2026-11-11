@@ -1,0 +1,41 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: packages
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y frr clang
+          # The package starts its own zebra/watchfrr on the host; the lab runs its own in namespaces.
+          sudo systemctl stop frr || true
+          python3 -m venv .venv && .venv/bin/pip install -q pytest
+      - name: build (release, ASan+UBSan, fuzzer)
+        run: |
+          cmake -S . -B build && cmake --build build -j
+          cmake -S . -B build-asan -DNBGP_SANITIZE=ON && cmake --build build-asan -j
+          cmake -S . -B build-fuzz -DNBGP_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++ && cmake --build build-fuzz -j --target fuzz_update
+      - name: unit tests
+        run: build/unit_tests && build-asan/unit_tests
+      - name: fuzz the UPDATE decoder (2 min)
+        run: |
+          mkdir -p corpus && python3 fuzz/make_seeds.py corpus
+          build-fuzz/fuzz_update -max_total_time=120 -max_len=4077 -print_final_stats=1 corpus 2>&1 | tail -8
+      - name: interop tests vs FRR (release)
+        run: sudo scripts/run.sh .venv/bin/python -m pytest -v --nbgpd build/nbgpd tests/ -p no:cacheprovider
+      - name: interop tests vs FRR (ASan + UBSan)
+        run: sudo scripts/run.sh .venv/bin/python -m pytest -q --nbgpd build-asan/nbgpd tests/ -p no:cacheprovider
+      - name: flap black-hole check
+        run: sudo scripts/run.sh python3 tools/flap_dataplane.py build/nbgpd | tee flap.txt
+      - name: bench
+        run: |
+          sudo SCALE_N=100000 scripts/run.sh python3 tools/bench.py build/nbgpd results/ci 10
+          cp flap.txt results/ci/flap_after_fix.txt
+          { echo '```'; cat results/ci/bench.txt; echo '```'; echo "CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) vCPU, kernel $(uname -r), $(dpkg-query -W frr)"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results
+          path: results/

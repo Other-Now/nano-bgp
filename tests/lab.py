@@ -164,6 +164,16 @@ class Lab:
             self.stop_node(n)
         for n in self.nodes.values():
             sh("ip", "netns", "del", n.name, check=False)
+        # An ASan/UBSan build aborts on the first error; LeakSanitizer reports at exit.
+        bad = []
+        for n in self.nodes.values():
+            log = f"{n.dir}/nbgpd.log"
+            if n.kind == "nano" and os.path.exists(log):
+                text = open(log, errors="replace").read()
+                if "Sanitizer" in text or "runtime error:" in text:
+                    bad.append(log)
+        if bad:
+            raise AssertionError(f"sanitizer reports in {bad}")
 
     # ------------------------------------------------------------ configs
     def nano_conf(self, n: Node) -> str:

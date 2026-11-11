@@ -1,0 +1,29 @@
+{
+ "frr->nano (fib on)": {
+  "routes": 100000,
+  "seconds": 1.69,
+  "routes_per_s": 59172,
+  "fib_ops": 100000,
+  "kernel_routes": 100000
+ },
+ "frr->nano (fib off)": {
+  "routes": 100000,
+  "seconds": 1.267,
+  "routes_per_s": 78927,
+  "fib_ops": 0,
+  "kernel_routes": 0
+ },
+ "nano->frr": {
+  "routes": 100000,
+  "seconds": 0.162,
+  "routes_per_s": 617674,
+  "poll_ms": 28.4
+ },
+ "nano->nano (fib on)": {
+  "routes": 100000,
+  "seconds": 0.582,
+  "routes_per_s": 171821,
+  "fib_ops": 100000,
+  "kernel_routes": 100000
+ }
+}

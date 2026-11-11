@@ -14,11 +14,15 @@
 using namespace nbgp;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+    // First byte picks the message type (mostly UPDATE), the rest is the body.
+    if (size == 0) return 0;
+    uint8_t type = data[0] < 16 ? uint8_t(data[0] % 4 + 1) : uint8_t(kUpdate);
+    ++data, --size;
     std::vector<uint8_t> msg(16, 0xFF);
     size_t len = std::min<size_t>(size + 19, 4096);
     msg.push_back(uint8_t(len >> 8));
     msg.push_back(uint8_t(len));
-    msg.push_back(size > 0 && data[0] < 5 ? data[0] : kUpdate);  // mostly UPDATEs
+    msg.push_back(type);
     msg.insert(msg.end(), data, data + (len - 19));
 
     auto r = decode_message(msg);
