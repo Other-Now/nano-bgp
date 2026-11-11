@@ -50,7 +50,7 @@ of the C++ codec. That way, the same misunderstanding can't pass on both sides.
 
 ## Results
 
-Measured locally: WSL2 (kernel 6.6), FRR 8.4.4 from the Ubuntu 24.04 package, release build,
+Measured locally: WSL2 (kernel 6.18), FRR 8.4.4 from the Ubuntu 24.04 package, release build,
 otherwise idle machine. Raw data is in [results/local](results/local). CI re-runs the same
 benchmark on every push ([results/ci](results/ci) once the workflow has run).
 
