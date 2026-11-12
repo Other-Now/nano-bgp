@@ -50,25 +50,30 @@ of the C++ codec. That way, the same misunderstanding can't pass on both sides.
 
 ## Results
 
-Measured locally: WSL2 (kernel 6.18), FRR 8.4.4 from the Ubuntu 24.04 package, release build,
-otherwise idle machine. Raw data is in [results/local](results/local). CI re-runs the same
-benchmark on every push ([results/ci](results/ci) once the workflow has run).
+Two environments, same benchmark (`tools/bench.py`):
+- **local**: WSL2 (kernel 6.18), FRR 8.4.4 from .debs, release build, otherwise idle machine.
+  Raw data in [results/local](results/local).
+- **CI**: GitHub Actions ubuntu-24.04 runner, FRR 8.4.4 from apt, as root. Raw data in
+  [results/ci](results/ci). CI re-runs everything on every push.
+
+All 6 nodes share one machine in both cases.
 
 - **Tests:** 37 unit (68 checks), 19 interop/bad-peer pass plus 1 expected FRR failure (below).
-  The same suite passes with ASan + UBSan.
-- **Fuzzing:** 47.9M inputs in 10 minutes, no crash and no round-trip mismatch.
+  The same suite passes with ASan + UBSan, locally and on CI.
+- **Fuzzing:** 47.9M inputs in 10 minutes locally, and 12.5M in 2 minutes on every CI run. No
+  crash and no round-trip mismatch.
 
 **Convergence after a failure on spine↔leaf3.** Median of 10 runs, measured until the other
 leaves' *kernel* route to 192.168.3.0/24 is single-path. Times come from `ip -ts monitor route`
 in each observer namespace, the same clock for FRR and nano-bgp. Hold time is 3 s, keepalive
 1 s.
 
-| failure | detected by | leaf1 (nano) | leaf2 (FRR) |
+| failure | detected by | leaf1 (nano) local / CI | leaf2 (FRR) local / CI |
 |---|---|---|---|
-| carrier down on spine1 link | spine1 = FRR | 66 ms | 127 ms |
-| carrier down on spine2 link | spine2 = nano | **5 ms** | 66 ms |
-| silent drop (carrier up) on spine1 link | FRR hold timer | 2.98 s | 3.04 s |
-| silent drop (carrier up) on spine2 link | nano hold timer | 2.27 s | 2.33 s |
+| carrier down on spine1 link | spine1 = FRR | 66 / 63 ms | 127 / 124 ms |
+| carrier down on spine2 link | spine2 = nano | **5 / 3 ms** | 66 / 64 ms |
+| silent drop (carrier up) on spine1 link | FRR hold timer | 2.98 / 2.16 s | 3.04 / 2.22 s |
+| silent drop (carrier up) on spine2 link | nano hold timer | 2.27 / 2.23 s | 2.33 / 2.29 s |
 
 A silent failure is only caught by the hold timer, so detection lands between hold − keepalive
 and hold (2–3 s here). With the common default hold of 180 s, it would take up to 3 minutes,
@@ -77,26 +82,29 @@ which is what BFD exists to fix.
 **Withdrawal propagation.** Median of 10 runs, until the prefix is deleted from the observer's
 kernel.
 
+Each cell is local / CI.
+
 | origin | spine1 (FRR, 1 hop) | spine2 (nano, 1 hop) | far leaf, nano | far leaf, FRR |
 |---|---|---|---|---|
-| nano leaf1 withdraws | 61.6 ms | **0.8 ms** | 51.7 ms | 111.9 ms |
-| FRR leaf2 withdraws (clock includes the `vtysh` call) | 153.9 ms | 93.4 ms | 143.9 ms | 205.1 ms |
+| nano leaf1 withdraws | 61.6 / 60.6 ms | **0.8 / 0.3 ms** | 51.7 / 50.7 ms | 111.9 / 110.8 ms |
+| FRR leaf2 withdraws (clock includes the `vtysh` call) | 153.9 / 139.6 ms | 93.4 / 79.3 ms | 143.9 / 129.5 ms | 205.1 / 189.9 ms |
 
 The one-hop pair has the same sender and the same message, with a different receiver. nano-bgp
 receives, decides and updates the kernel in under 1 ms. FRR's bgpd+zebra takes about 60 ms in
 this setup. I haven't profiled where FRR's 60 ms goes, so don't read it as a general FRR number.
 
-**Learning 100,000 /24 routes over one session**, from Established. Median of 3 runs.
+**Learning 100,000 /24 routes over one session**, from Established. Local is the median of 3
+runs; CI is 1 run.
 
-| sender → receiver | time | routes/s |
+| sender → receiver | local | CI |
 |---|---|---|
-| nano → nano, kernel FIB on (all 100k in `ip route`) | 0.58 s | 172k |
-| FRR → nano, kernel FIB on | 1.70 s | 59k |
-| FRR → nano, kernel FIB off | 1.29 s | 77k |
-| nano → FRR | 0.21 s | ~470k (vtysh polling, about 35 ms resolution) |
+| nano → nano, kernel FIB on (all 100k in `ip route`) | 0.58 s (172k/s) | 1.05 s (95k/s) |
+| FRR → nano, kernel FIB on | 1.70 s (59k/s) | 1.87 s (54k/s) |
+| FRR → nano, kernel FIB off | 1.29 s (77k/s) | 1.24 s (81k/s) |
+| nano → FRR (vtysh polling, about 30 ms resolution) | 0.21 s | 0.22 s |
 
 The FRR→nano time is bounded by how fast FRR sends: the same nano-bgp receiver takes the same
-100k routes from another nano-bgp 3× faster, kernel install included.
+100k routes from another nano-bgp 1.8–2.9× faster, kernel install included.
 
 ## Findings
 
