@@ -1,0 +1,6 @@
+Done 12513564 runs in 121 second(s)
+stat::number_of_executed_units: 12513564
+stat::average_exec_per_sec:     103417
+stat::new_units_added:          813
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              536

@@ -1,0 +1,40 @@
+reps per case: 10; hold 3 s / keepalive 1 s; times are kernel FIB events (ip -ts monitor route)
+FRR-side withdrawals start when vtysh is launched, so they include vtysh's own run time
+
+Link spine1 (FRR)<->leaf3: carrier down  (until 192.168.3.0/24 is single-path)
+  leaf1 (nano)           median 63.2 ms  [min 63.0, max 63.5]  n=10
+  leaf2 (FRR)            median 123.5 ms  [min 123.4, max 123.8]  n=10
+  leaf4 (FRR)            median 123.5 ms  [min 123.4, max 123.8]  n=10
+
+Link spine1 (FRR)<->leaf3: silent drop, carrier up (hold timer)  (until 192.168.3.0/24 is single-path)
+  leaf1 (nano)           median 2161.3 ms  [min 2146.4, max 3030.2]  n=10
+  leaf2 (FRR)            median 2221.6 ms  [min 2206.7, max 3090.5]  n=10
+  leaf4 (FRR)            median 2221.6 ms  [min 2206.7, max 3090.5]  n=10
+
+Link spine2 (nano)<->leaf3: carrier down  (until 192.168.3.0/24 is single-path)
+  leaf1 (nano)           median 3.3 ms  [min 3.2, max 3.4]  n=10
+  leaf2 (FRR)            median 63.6 ms  [min 63.5, max 63.7]  n=10
+  leaf4 (FRR)            median 63.6 ms  [min 63.5, max 63.7]  n=10
+
+Link spine2 (nano)<->leaf3: silent drop, carrier up (hold timer)  (until 192.168.3.0/24 is single-path)
+  leaf1 (nano)           median 2226.3 ms  [min 2221.6, max 2232.0]  n=10
+  leaf2 (FRR)            median 2286.7 ms  [min 2282.0, max 2292.5]  n=10
+  leaf4 (FRR)            median 2286.7 ms  [min 2281.9, max 2292.4]  n=10
+
+Withdrawal nano leaf1 -> observers  (until the route is deleted from the kernel)
+  spine1 (FRR, 1 hop)    median 60.6 ms  [min 60.5, max 60.7]  n=10
+  spine2 (nano, 1 hop)   median 0.3 ms  [min 0.3, max 0.5]  n=10
+  leaf3 (nano, 2 hops)   median 50.7 ms  [min 50.6, max 50.8]  n=10
+  leaf2 (FRR, 2 hops)    median 110.8 ms  [min 110.7, max 111.0]  n=10
+
+Withdrawal FRR leaf2 -> observers  (until the route is deleted from the kernel)
+  spine1 (FRR, 1 hop)    median 139.6 ms  [min 138.6, max 140.7]  n=10
+  spine2 (nano, 1 hop)   median 79.3 ms  [min 78.4, max 80.5]  n=10
+  leaf1 (nano, 2 hops)   median 129.5 ms  [min 128.7, max 130.7]  n=10
+  leaf4 (FRR, 2 hops)    median 189.9 ms  [min 189.0, max 191.0]  n=10
+
+Route scale (100000 prefixes, one session, from Established)
+  frr->nano (fib on)   1.869 s  = 53505 routes/s  kernel routes 100000
+  frr->nano (fib off)  1.242 s  = 80515 routes/s  kernel routes 0
+  nano->frr            0.223 s  = 448136 routes/s  (poll resolution 26.7 ms)
+  nano->nano (fib on)  1.051 s  = 95147 routes/s  kernel routes 100000

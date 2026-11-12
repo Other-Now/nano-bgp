@@ -32,7 +32,7 @@ jobs:
       - name: bench
         run: |
           sudo SCALE_N=100000 scripts/run.sh python3 tools/bench.py build/nbgpd results/ci 10
-          cp flap.txt results/ci/flap_after_fix.txt
+          sudo cp flap.txt results/ci/flap_after_fix.txt
           { echo '```'; cat results/ci/bench.txt; echo '```'; echo "CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) vCPU, kernel $(uname -r), $(dpkg-query -W frr)"; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
