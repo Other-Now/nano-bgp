@@ -39,6 +39,9 @@ rm -f /run/etc-farm/group /run/etc-farm/passwd /run/etc-farm/frr
 cp /run/etc-orig/group /run/etc-farm/group
 cp /run/etc-orig/passwd /run/etc-farm/passwd
 grep -q '^frrvty:' /run/etc-farm/group || echo "frrvty:x:0:" >> /run/etc-farm/group
+# The daemons run as root (-u root) and refuse to start unless root is in frrvty.
+# (Where the frr package is installed, the group exists with its own gid and no members.)
+sed -i -E '/^frrvty:/{/[:,]root(,|$)/!{s/:$/:root/;t;s/$/,root/}}' /run/etc-farm/group
 grep -q '^frr:' /run/etc-farm/group || echo "frr:x:0:" >> /run/etc-farm/group
 grep -q '^frr:' /run/etc-farm/passwd || echo "frr:x:0:0::/run/nbgp:/bin/false" >> /run/etc-farm/passwd
 mkdir -p /run/etc-farm/frr
