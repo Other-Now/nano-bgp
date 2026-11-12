@@ -27,9 +27,18 @@ def fabric(nbgpd):
     lab.build()
     lab.start()
     try:
-        lab.wait(lab.all_established, timeout=30, what="all sessions Established")
-        lab.wait(lambda: all(lab.rib(n) == lab.expected_rib(n) for n in lab.nodes), timeout=15,
-                 what="all tables converged")
+        try:
+            lab.wait(lab.all_established, timeout=30, what="all sessions Established")
+            lab.wait(lambda: all(lab.rib(n) == lab.expected_rib(n) for n in lab.nodes), timeout=15,
+                     what="all tables converged")
+        except TimeoutError:
+            # The daemon logs live in the private /run; show them before it disappears.
+            for n in lab.nodes.values():
+                for f in ("frr.out", "bgpd.log", "nbgpd.log"):
+                    p = os.path.join(n.dir, f)
+                    if os.path.exists(p):
+                        print(f"----- {n.name}/{f}\n" + open(p, errors="replace").read()[-3000:])
+            raise
         yield lab
     finally:
         lab.stop()
